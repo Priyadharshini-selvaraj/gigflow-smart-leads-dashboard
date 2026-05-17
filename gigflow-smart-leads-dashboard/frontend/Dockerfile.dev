@@ -1,0 +1,12 @@
+# Frontend dev server — used by docker-compose.dev.yml only
+FROM node:20.11-alpine3.19
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+RUN npm ci
+
+# Source is mounted as a bind volume at runtime
+EXPOSE 5173
+
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]

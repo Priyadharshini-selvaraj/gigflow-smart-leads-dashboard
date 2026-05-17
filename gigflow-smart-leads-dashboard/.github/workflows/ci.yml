@@ -1,0 +1,143 @@
+name: CI
+
+# ── Triggers ──────────────────────────────────────────────────────
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+# Cancel in-flight runs for the same branch when a new push arrives
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# ─────────────────────────────────────────────────────────────────
+jobs:
+
+  # ── Backend ───────────────────────────────────────────────────
+  backend:
+    name: Backend — Type-check & Build
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: backend
+
+    strategy:
+      matrix:
+        node-version: [20.x]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript type-check
+        run: npx tsc --noEmit
+
+      - name: Build (tsc emit)
+        run: npm run build
+
+      # Verify the compiled entry point actually exists
+      - name: Verify build output
+        run: test -f dist/app.js && echo "✅ dist/app.js exists"
+
+
+  # ── Frontend ──────────────────────────────────────────────────
+  frontend:
+    name: Frontend — Type-check, Lint & Build
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    strategy:
+      matrix:
+        node-version: [20.x]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript type-check
+        run: npm run type-check
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build (Vite)
+        run: npm run build
+        env:
+          # Provide a placeholder so Vite doesn't fail on the missing env var.
+          # The real value is injected at deploy time.
+          VITE_API_BASE_URL: https://placeholder.example.com/api
+
+      - name: Verify build output
+        run: test -f dist/index.html && echo "✅ dist/index.html exists"
+
+      # Upload the build artifact so the CD workflow can download it
+      # instead of rebuilding from scratch.
+      - name: Upload frontend build artifact
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist/
+          retention-days: 1
+
+
+  # ── Docker build smoke-test ───────────────────────────────────
+  docker-build:
+    name: Docker — Build smoke-test
+    runs-on: ubuntu-latest
+    # Only run on push to main (PRs skip this — it's slow)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [backend, frontend]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build backend image (no push)
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          push: false
+          tags: gigflow-backend:ci
+          cache-from: type=gha
+          cache-to:   type=gha,mode=max
+
+      - name: Build frontend image (no push)
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          push: false
+          tags: gigflow-frontend:ci
+          build-args: |
+            VITE_API_BASE_URL=/api
+          cache-from: type=gha
+          cache-to:   type=gha,mode=max

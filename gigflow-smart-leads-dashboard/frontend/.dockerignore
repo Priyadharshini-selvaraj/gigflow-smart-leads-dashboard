@@ -1,0 +1,34 @@
+# Dependencies — reinstalled inside container
+node_modules/
+npm-debug.log*
+
+# Build output — rebuilt inside container
+dist/
+
+# Environment files — baked via ARG, not copied
+.env
+.env.*
+!.env.example
+
+# Dev artifacts
+coverage/
+.nyc_output/
+
+# Editor & OS noise
+.DS_Store
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Docker itself
+Dockerfile
+.dockerignore
+nginx.conf
+
+# CI
+.github/

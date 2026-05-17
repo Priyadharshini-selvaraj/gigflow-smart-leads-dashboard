@@ -1,0 +1,44 @@
+# ─────────────────────────────────────────────────────────────────
+# GigFlow – Docker Compose override for LOCAL DEVELOPMENT
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+#
+# What this changes vs production:
+#   • MongoDB port 27017 exposed to host (GUI tools like Compass)
+#   • Backend runs ts-node-dev with hot-reload via bind mount
+#   • Frontend runs Vite dev server (port 5173) instead of Nginx
+#   • Source maps and verbose logging enabled
+# ─────────────────────────────────────────────────────────────────
+
+services:
+
+  mongo:
+    ports:
+      - "27017:27017"     # Expose for MongoDB Compass / mongosh on host
+
+  backend:
+    build:
+      target: deps        # Only install deps — skip tsc build
+    command: npm run dev  # ts-node-dev hot-reload
+    ports:
+      - "5000:5000"
+      - "9229:9229"       # Node.js debugger (--inspect)
+    environment:
+      NODE_ENV: development
+    volumes:
+      - ./backend/src:/app/src:ro    # Live source sync into container
+    healthcheck:
+      disable: true       # Skip health check in dev (startup is slower)
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev    # Uses Vite dev server, not Nginx
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_BASE_URL: http://localhost:5000/api
+    volumes:
+      - ./frontend/src:/app/src:ro
+      - ./frontend/public:/app/public:ro

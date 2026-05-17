@@ -1,0 +1,62 @@
+# ─────────────────────────────────────────────────────────────────
+# GigFlow – Render Blueprint
+# https://render.com/docs/blueprint-spec
+#
+# Usage:
+#   1. Push this file to your GitHub repository
+#   2. In Render Dashboard → New → Blueprint
+#   3. Connect the repo — Render reads render.yaml automatically
+#   4. Fill in the sync: false values (MONGODB_URI, CORS_ORIGIN, JWT_SECRET)
+#   5. Deploy
+# ─────────────────────────────────────────────────────────────────
+
+services:
+
+  - type: web
+    name: gigflow-backend
+    runtime: node
+    region: oregon          # Change to: frankfurt | singapore | ohio
+    plan: free              # Change to: starter | standard for production SLAs
+
+    rootDir: backend
+
+    buildCommand: npm ci && npm run build
+    startCommand: node dist/app.js
+
+    # Render reads this path to determine service health.
+    # The backend exposes GET /health → 200 {"status":"OK"}
+    healthCheckPath: /health
+
+    autoDeploy: true        # Re-deploy on every push to the production branch
+
+    envVars:
+      # ── Static values ────────────────────────────────────────
+      - key: NODE_ENV
+        value: production
+
+      - key: PORT
+        value: 5000           # Render also sets $PORT automatically
+
+      - key: JWT_EXPIRES_IN
+        value: 7d
+
+      - key: BCRYPT_SALT_ROUNDS
+        value: 12
+
+      # ── Auto-generated secrets ───────────────────────────────
+      # Render generates a cryptographically secure random value on
+      # first deploy and persists it across redeploys.
+      - key: JWT_SECRET
+        generateValue: true
+
+      # ── Manual secrets (set in Render dashboard) ─────────────
+      # sync: false means Render will prompt you to enter these
+      # values in the dashboard. They are never stored in this file.
+      - key: MONGODB_URI
+        sync: false
+        # Example: mongodb+srv://user:pass@cluster0.xxx.mongodb.net/gigflow
+
+      - key: CORS_ORIGIN
+        sync: false
+        # Example: https://gigflow.vercel.app
+        # Must exactly match your Vercel frontend URL (no trailing slash)

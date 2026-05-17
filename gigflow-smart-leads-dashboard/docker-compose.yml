@@ -1,0 +1,91 @@
+# ─────────────────────────────────────────────────────────────────
+# GigFlow – Docker Compose (production)
+#
+# Usage:
+#   cp .env.example .env        # fill in JWT_SECRET
+#   docker compose up --build -d
+#   docker exec gigflow_backend node dist/scripts/seed.js
+#
+# Network topology:
+#   Browser → frontend:80 → (nginx proxies /api/*) → backend:5000
+#                                                   → mongo:27017
+# MongoDB is NOT exposed to the host — internal only.
+# ─────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── MongoDB ───────────────────────────────────────────────────
+  mongo:
+    image: mongo:7.0.5-jammy
+    container_name: gigflow_mongo
+    restart: unless-stopped
+    # Port 27017 is intentionally NOT mapped to the host.
+    # Only the backend container can reach it via the internal network.
+    volumes:
+      - mongo_data:/data/db
+    environment:
+      MONGO_INITDB_DATABASE: gigflow
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - gigflow_net
+
+  # ── Backend API ──────────────────────────────────────────────
+  backend:
+    container_name: gigflow_backend
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: production
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5000:5000"   # Bind to localhost only — nginx is the public entry point
+    env_file:
+      - .env
+    environment:
+      # Override connection string to use the internal service name
+      MONGODB_URI: mongodb://mongo:27017/gigflow
+      NODE_ENV: production
+    depends_on:
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5000/health"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - gigflow_net
+
+  # ── Frontend (Nginx SPA + API proxy) ─────────────────────────
+  frontend:
+    container_name: gigflow_frontend
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: production
+      args:
+        # /api is relative — Nginx proxies it to backend:5000 internally.
+        # The browser never talks directly to the backend port.
+        VITE_API_BASE_URL: /api
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - gigflow_net
+
+volumes:
+  mongo_data:
+    driver: local
+
+networks:
+  gigflow_net:
+    driver: bridge
